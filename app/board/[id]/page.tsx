@@ -14,22 +14,28 @@ type Card = {
     y: number;
     text: string;
     type: "note";
+} | {
+    id: string;
+    x: number;
+    y: number;
+    type: "image";
+    src: string;
+    width: number;
+    height: number;
 };
 
 export default function BoardPage() {
     const canvasRef = useRef<HTMLDivElement>(null);
     const transformRef = useRef<Transform>({ x: 0, y: 0, scale: 1 });
-    const [transform, setTransform] = useState<Transform>({
-        x: 0,
-        y: 0,
-        scale: 1,
-    });
+    const [transform, setTransform] = useState<Transform>({ x: 0, y: 0, scale: 1 });
 
     const isPanning = useRef(false);
     const panStart = useRef({ x: 0, y: 0 });
 
     const [cards, setCards] = useState<Card[]>([]);
     const mousePos = useRef({ x: 0, y: 0 });
+
+    const draggingCard = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null);
 
     function applyTransform(t: Transform) {
         transformRef.current = t;
@@ -57,6 +63,20 @@ export default function BoardPage() {
 
         function onMouseMove(e: MouseEvent) {
             mousePos.current = { x: e.clientX, y: e.clientY };
+
+            if (draggingCard.current) {
+                const { id, offsetX, offsetY } = draggingCard.current;
+                const worldPos = screenToWorld(e.clientX, e.clientY);
+                setCards((prev) =>
+                    prev.map((c) =>
+                        c.id === id
+                            ? { ...c, x: worldPos.x - offsetX, y: worldPos.y - offsetY }
+                            : c
+                    )
+                );
+                return;
+            }
+
             if (!isPanning.current) return;
             applyTransform({
                 ...transformRef.current,
@@ -66,6 +86,7 @@ export default function BoardPage() {
         }
 
         function onMouseUp() {
+            draggingCard.current = null;
             isPanning.current = false;
         }
 
@@ -77,6 +98,49 @@ export default function BoardPage() {
             window.removeEventListener("mousedown", onMouseDown);
             window.removeEventListener("mousemove", onMouseMove);
             window.removeEventListener("mouseup", onMouseUp);
+        };
+    }, []);
+
+    useEffect(() => {
+        function onDrop(e: DragEvent) {
+            e.preventDefault();
+            const file = e.dataTransfer?.files[0];
+            if (!file || !file.type.startsWith("image/")) return;
+
+            const reader = new FileReader();
+            reader.onload = () => {
+                const src = reader.result as string;
+                const img = new Image();
+                img.onload = () => {
+                    const pos = screenToWorld(e.clientX, e.clientY);
+                    setCards((prev) => [
+                        ...prev,
+                        {
+                            id: Date.now().toString(),
+                            type: "image",
+                            x: pos.x,
+                            y: pos.y,
+                            src,
+                            width: img.naturalWidth,
+                            height: img.naturalHeight,
+                        },
+                    ]);
+                };
+                img.src = src;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function onDragOver(e: DragEvent) {
+            e.preventDefault();
+        }
+
+        window.addEventListener("drop", onDrop);
+        window.addEventListener("dragover", onDragOver);
+
+        return () => {
+            window.removeEventListener("drop", onDrop);
+            window.removeEventListener("dragover", onDragOver);
         };
     }, []);
 
@@ -106,20 +170,56 @@ export default function BoardPage() {
     useEffect(() => {
         function onPaste(e: ClipboardEvent) {
             e.preventDefault();
+
+            // check for image in clipboard first
+            const imageItem = Array.from(e.clipboardData?.items ?? []).find(
+                (item) => item.type.startsWith("image/")
+            );
+
+            if (imageItem) {
+                const file = imageItem.getAsFile();
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = () => {
+                    const src = reader.result as string;
+                    const img = new Image();
+                    img.onload = () => {
+                        const pos = screenToWorld(mousePos.current.x, mousePos.current.y);
+                        setCards((prev) => [
+                            ...prev,
+                            {
+                                id: Date.now().toString(),
+                                type: "image",
+                                x: pos.x,
+                                y: pos.y,
+                                src,
+                                width: img.naturalWidth,
+                                height: img.naturalHeight,
+                            },
+                        ]);
+                    };
+                    img.src = src;
+                };
+                reader.readAsDataURL(file);
+                return;
+            }
+
+            // fall through to text
             const text = e.clipboardData?.getData("text/plain")?.trim();
             if (!text) return;
 
             const pos = screenToWorld(mousePos.current.x, mousePos.current.y);
-
-            const card: Card = {
-                id: Date.now().toString(),
-                type: "note",
-                x: pos.x,
-                y: pos.y,
-                text,
-            };
-
-            setCards((prev) => [...prev, card]);
+            setCards((prev) => [
+                ...prev,
+                {
+                    id: Date.now().toString(),
+                    type: "note",
+                    x: pos.x,
+                    y: pos.y,
+                    text,
+                },
+            ]);
         }
 
         window.addEventListener("paste", onPaste);
@@ -148,24 +248,51 @@ export default function BoardPage() {
                 }}
                 className="absolute top-0 left-0"
             >
-                {cards.map((card) => (
-                    <NoteCard
-                        key={card.id}
-                        card={card}
-                        onChange={(text) =>
-                            setCards((prev) =>
-                                prev.map((c) =>
-                                    c.id === card.id ? { ...c, text } : c
+                {cards.map((card) =>
+                    card.type === "note" ? (
+                        <NoteCard
+                            key={card.id}
+                            card={card}
+                            onChange={(text) =>
+                                setCards((prev) =>
+                                    prev.map((c) => (c.id === card.id ? { ...c, text } : c))
                                 )
-                            )
-                        }
-                        onDelete={() =>
-                            setCards((prev) =>
-                                prev.filter((c) => c.id !== card.id)
-                            )
-                        }
-                    />
-                ))}
+                            }
+                            onDelete={() =>
+                                setCards((prev) => prev.filter((c) => c.id !== card.id))
+                            }
+                            onPointerDown={(e) => {
+                                if ((e.target as HTMLElement).isContentEditable) return;
+                                if ((e.target as HTMLElement).tagName === "BUTTON") return;
+                                e.stopPropagation();
+                                const worldPos = screenToWorld(e.clientX, e.clientY);
+                                draggingCard.current = {
+                                    id: card.id,
+                                    offsetX: worldPos.x - card.x,
+                                    offsetY: worldPos.y - card.y,
+                                };
+                            }}
+                        />
+                    ) : (
+                        <ImageCard
+                            key={card.id}
+                            card={card}
+                            onDelete={() =>
+                                setCards((prev) => prev.filter((c) => c.id !== card.id))
+                            }
+                            onPointerDown={(e) => {
+                                if ((e.target as HTMLElement).tagName === "BUTTON") return;
+                                e.stopPropagation();
+                                const worldPos = screenToWorld(e.clientX, e.clientY);
+                                draggingCard.current = {
+                                    id: card.id,
+                                    offsetX: worldPos.x - card.x,
+                                    offsetY: worldPos.y - card.y,
+                                };
+                            }}
+                        />
+                    )
+                )}
             </div>
 
             <div className="fixed bottom-4 left-4 text-xs text-gray-400 bg-white px-2 py-1 rounded-lg border border-gray-200 pointer-events-none">
@@ -179,15 +306,18 @@ function NoteCard({
     card,
     onChange,
     onDelete,
+    onPointerDown,
 }: {
-    card: Card;
+    card: Extract<Card, { type: "note" }>;
     onChange: (text: string) => void;
     onDelete: () => void;
+    onPointerDown: (e: React.PointerEvent) => void;
 }) {
     return (
         <div
-            className="absolute bg-white border border-gray-200 rounded-xl p-3 shadow-sm group"
+            className="absolute bg-white border border-gray-200 rounded-xl p-3 shadow-sm group cursor-default"
             style={{ left: card.x, top: card.y, minWidth: 180, maxWidth: 300 }}
+            onPointerDown={onPointerDown}
         >
             <div className="text-xs text-gray-300 uppercase tracking-wide font-medium mb-1.5">
                 note
@@ -203,6 +333,38 @@ function NoteCard({
             <button
                 onClick={onDelete}
                 className="absolute top-2 right-2 text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity text-xs"
+            >
+                ✕
+            </button>
+        </div>
+    );
+}
+
+function ImageCard({
+    card,
+    onDelete,
+    onPointerDown,
+}: {
+    card: Extract<Card, { type: "image" }>;
+    onDelete: () => void;
+    onPointerDown: (e: React.PointerEvent) => void;
+}) {
+    return (
+        <div
+            className="absolute group cursor-default"
+            style={{ left: card.x, top: card.y, width: card.width, height: card.height }}
+            onPointerDown={onPointerDown}
+        >
+            <img
+                src={card.src}
+                width={card.width}
+                height={card.height}
+                className="rounded-xl select-none pointer-events-none"
+                draggable={false}
+            />
+            <button
+                onClick={onDelete}
+                className="absolute top-2 right-2 text-white bg-black/40 hover:bg-red-400 rounded-full w-5 h-5 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-xs"
             >
                 ✕
             </button>
