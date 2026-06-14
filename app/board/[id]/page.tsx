@@ -34,6 +34,7 @@ export default function BoardPage() {
 
     const [cards, setCards] = useState<Card[]>([]);
     const mousePos = useRef({ x: 0, y: 0 });
+    const [editingId, setEditingId] = useState<string | null>(null);
 
     const draggingCard = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null);
 
@@ -90,6 +91,23 @@ export default function BoardPage() {
             isPanning.current = false;
         }
 
+        function onDblClick(e: MouseEvent) {
+            const target = e.target as HTMLElement;
+            if (target !== canvasRef.current && target.id !== "world") return;
+            const pos = screenToWorld(e.clientX, e.clientY);
+            setCards((prev) => [
+                ...prev,
+                {
+                    id: Date.now().toString(),
+                    type: "note",
+                    x: pos.x,
+                    y: pos.y,
+                    text: "",
+                },
+            ]);
+        }
+
+        window.addEventListener("dblclick", onDblClick);
         window.addEventListener("mousedown", onMouseDown);
         window.addEventListener("mousemove", onMouseMove);
         window.addEventListener("mouseup", onMouseUp);
@@ -98,6 +116,8 @@ export default function BoardPage() {
             window.removeEventListener("mousedown", onMouseDown);
             window.removeEventListener("mousemove", onMouseMove);
             window.removeEventListener("mouseup", onMouseUp);
+            window.addEventListener("dblclick", onDblClick);
+
         };
     }, []);
 
@@ -171,7 +191,6 @@ export default function BoardPage() {
         function onPaste(e: ClipboardEvent) {
             e.preventDefault();
 
-            // check for image in clipboard first
             const imageItem = Array.from(e.clipboardData?.items ?? []).find(
                 (item) => item.type.startsWith("image/")
             );
@@ -205,7 +224,6 @@ export default function BoardPage() {
                 return;
             }
 
-            // fall through to text
             const text = e.clipboardData?.getData("text/plain")?.trim();
             if (!text) return;
 
@@ -261,6 +279,8 @@ export default function BoardPage() {
                             onDelete={() =>
                                 setCards((prev) => prev.filter((c) => c.id !== card.id))
                             }
+                            onFocus={() => setEditingId(card.id)}
+                            onBlur={() => setEditingId(null)}
                             onPointerDown={(e) => {
                                 if ((e.target as HTMLElement).isContentEditable) return;
                                 if ((e.target as HTMLElement).tagName === "BUTTON") return;
@@ -295,9 +315,12 @@ export default function BoardPage() {
                 )}
             </div>
 
+            {editingId && <FormatBar />}
+
             <div className="fixed bottom-4 left-4 text-xs text-gray-400 bg-white px-2 py-1 rounded-lg border border-gray-200 pointer-events-none">
                 {Math.round(transform.scale * 100)}%
             </div>
+
             <div className="fixed bottom-4 right-4 flex flex-col gap-1 bg-white border border-gray-200 rounded-xl p-1.5 shadow-sm">
                 <button
                     title="Add note"
@@ -331,15 +354,79 @@ export default function BoardPage() {
     );
 }
 
+function FormatBar() {
+    function cmd(command: string, value?: string) {
+        document.execCommand(command, false, value);
+    }
+
+    return (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 flex items-center gap-0.5 bg-white border border-gray-200 rounded-xl px-2 py-1.5 shadow-sm z-50">
+            <FormatBtn title="Bold" onClick={() => cmd("bold")}>
+                <i className="ti ti-bold" />
+            </FormatBtn>
+            <FormatBtn title="Italic" onClick={() => cmd("italic")}>
+                <i className="ti ti-italic" />
+            </FormatBtn>
+            <FormatBtn title="Underline" onClick={() => cmd("underline")}>
+                <i className="ti ti-underline" />
+            </FormatBtn>
+            <FormatBtn title="Strikethrough" onClick={() => cmd("strikeThrough")}>
+                <i className="ti ti-strikethrough" />
+            </FormatBtn>
+            <div className="w-px h-4 bg-gray-200 mx-1" />
+            <FormatBtn title="Bullet list" onClick={() => cmd("insertUnorderedList")}>
+                <i className="ti ti-list" />
+            </FormatBtn>
+            <FormatBtn title="Numbered list" onClick={() => cmd("insertOrderedList")}>
+                <i className="ti ti-list-numbers" />
+            </FormatBtn>
+            <div className="w-px h-4 bg-gray-200 mx-1" />
+            <FormatBtn title="Highlight" onClick={() => cmd("backColor", "#fef08a")}>
+                <i className="ti ti-highlight" />
+            </FormatBtn>
+            <FormatBtn title="Clear formatting" onClick={() => cmd("removeFormat")}>
+                <i className="ti ti-clear-formatting" />
+            </FormatBtn>
+        </div>
+    );
+}
+
+function FormatBtn({
+    title,
+    onClick,
+    children,
+}: {
+    title: string;
+    onClick: () => void;
+    children: React.ReactNode;
+}) {
+    return (
+        <button
+            title={title}
+            onMouseDown={(e) => {
+                e.preventDefault(); // keep focus in contentEditable
+                onClick();
+            }}
+            className="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-500 hover:text-gray-800 transition-colors text-base"
+        >
+            {children}
+        </button>
+    );
+}
+
 function NoteCard({
     card,
     onChange,
     onDelete,
+    onFocus,
+    onBlur,
     onPointerDown,
 }: {
     card: Extract<Card, { type: "note" }>;
     onChange: (text: string) => void;
     onDelete: () => void;
+    onFocus: () => void;
+    onBlur: () => void;
     onPointerDown: (e: React.PointerEvent) => void;
 }) {
     return (
@@ -354,11 +441,12 @@ function NoteCard({
             <div
                 contentEditable
                 suppressContentEditableWarning
-                onBlur={(e) => onChange(e.currentTarget.textContent || "")}
+                onFocus={onFocus}
+                onBlur={onBlur}
+                onInput={(e) => onChange(e.currentTarget.innerHTML)}
                 className="text-sm text-gray-800 outline-none leading-relaxed whitespace-pre-wrap break-words min-h-4"
-            >
-                {card.text}
-            </div>
+                dangerouslySetInnerHTML={{ __html: card.text }}
+            />
             <button
                 onClick={onDelete}
                 className="absolute top-2 right-2 text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity text-xs"
