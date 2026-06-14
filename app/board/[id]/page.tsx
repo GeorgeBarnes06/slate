@@ -298,6 +298,35 @@ export default function BoardPage() {
             <div className="fixed bottom-4 left-4 text-xs text-gray-400 bg-white px-2 py-1 rounded-lg border border-gray-200 pointer-events-none">
                 {Math.round(transform.scale * 100)}%
             </div>
+            <div className="fixed bottom-4 right-4 flex flex-col gap-1 bg-white border border-gray-200 rounded-xl p-1.5 shadow-sm">
+                <button
+                    title="Add note"
+                    onClick={() => {
+                        const pos = screenToWorld(window.innerWidth / 2, window.innerHeight / 2);
+                        setCards((prev) => [...prev, {
+                            id: Date.now().toString(),
+                            type: "note",
+                            x: pos.x,
+                            y: pos.y,
+                            text: "",
+                        }]);
+                    }}
+                    className="w-9 h-9 rounded-lg bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-600 hover:text-gray-800 transition-colors"
+                >
+                    <i className="ti ti-note text-lg" />
+                </button>
+                <div className="w-6 h-px bg-gray-200 mx-auto" />
+                <button title="Add image" className="w-9 h-9 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400 hover:text-gray-600 transition-colors">
+                    <i className="ti ti-photo text-lg" />
+                </button>
+                <button title="Add link" className="w-9 h-9 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400 hover:text-gray-600 transition-colors">
+                    <i className="ti ti-link text-lg" />
+                </button>
+                <button title="Add code" className="w-9 h-9 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400 hover:text-gray-600 transition-colors">
+                    <i className="ti ti-code text-lg" />
+                </button>
+            </div>
+
         </div>
     );
 }
