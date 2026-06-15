@@ -429,6 +429,14 @@ function NoteCard({
     onBlur: () => void;
     onPointerDown: (e: React.PointerEvent) => void;
 }) {
+    const contentRef = useRef<HTMLDivElement>(null);  
+
+    useEffect(() => {                                  
+        if (contentRef.current && contentRef.current.innerHTML !== card.text) {
+            contentRef.current.innerHTML = card.text;
+        }
+    }, [card.text]);
+
     return (
         <div
             className="absolute bg-white border border-gray-200 rounded-xl p-3 shadow-sm group cursor-default"
@@ -439,13 +447,13 @@ function NoteCard({
                 note
             </div>
             <div
+                ref={contentRef}
                 contentEditable
                 suppressContentEditableWarning
                 onFocus={onFocus}
                 onBlur={onBlur}
                 onInput={(e) => onChange(e.currentTarget.innerHTML)}
                 className="text-sm text-gray-800 outline-none leading-relaxed whitespace-pre-wrap break-words min-h-4"
-                dangerouslySetInnerHTML={{ __html: card.text }}
             />
             <button
                 onClick={onDelete}
